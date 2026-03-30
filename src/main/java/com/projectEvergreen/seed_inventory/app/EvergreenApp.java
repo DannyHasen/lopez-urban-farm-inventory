@@ -30,7 +30,7 @@ public class EvergreenApp extends JFrame
 
         JTextField name = new JTextField();
         JComboBox<Season> season = new JComboBox<>(Season.values());
-        JSpinner amount = new JSpinner(new SpinnerNumberModel(0, 0, 1000000, 1));
+        JSpinner amount = new JSpinner(new SpinnerNumberModel(0, 0, 1_000_000, 1));
         JSpinner avgDays = new JSpinner(new SpinnerNumberModel(0, 0, 3650, 1));
 
         JButton add = new JButton("Add");
@@ -67,7 +67,12 @@ public class EvergreenApp extends JFrame
 
             if (n.isEmpty())
             {
-                JOptionPane.showMessageDialog(this, "Name required");
+                JOptionPane.showMessageDialog(
+                    this,
+                    "Name is required.",
+                    "Invalid Input",
+                    JOptionPane.WARNING_MESSAGE
+                );
                 return;
             }
 
@@ -75,9 +80,15 @@ public class EvergreenApp extends JFrame
             int avg = (Integer) avgDays.getValue();
             Integer avgOrNull = (avg == 0 ? null : avg);
 
-            tableModel.add(new Crop(n, (Season) season.getSelectedItem(), amt, avgOrNull));
+            tableModel.add(new Crop(
+                n,
+                (Season) season.getSelectedItem(),
+                amt,
+                avgOrNull
+            ));
 
             name.setText("");
+            season.setSelectedIndex(0);
             amount.setValue(0);
             avgDays.setValue(0);
         });
@@ -86,10 +97,18 @@ public class EvergreenApp extends JFrame
         {
             int row = table.getSelectedRow();
 
-            if (row >= 0)
+            if (row < 0)
             {
-                tableModel.remove(row);
+                JOptionPane.showMessageDialog(
+                    this,
+                    "Please select an item to delete.",
+                    "No Selection",
+                    JOptionPane.WARNING_MESSAGE
+                );
+                return;
             }
+
+            tableModel.remove(row);
         });
 
         save.addActionListener(e ->
@@ -97,11 +116,21 @@ public class EvergreenApp extends JFrame
             try
             {
                 store.saveAll(tableModel.data);
-                JOptionPane.showMessageDialog(this, "Saved!");
+                JOptionPane.showMessageDialog(
+                    this,
+                    "Saved successfully.",
+                    "Save Complete",
+                    JOptionPane.INFORMATION_MESSAGE
+                );
             }
             catch (IOException ex)
             {
-                JOptionPane.showMessageDialog(this, "Save failed: " + ex.getMessage());
+                JOptionPane.showMessageDialog(
+                    this,
+                    "Save failed: " + ex.getMessage(),
+                    "Save Error",
+                    JOptionPane.ERROR_MESSAGE
+                );
             }
         });
 
@@ -111,11 +140,21 @@ public class EvergreenApp extends JFrame
             {
                 List<Crop> list = store.loadAll();
                 tableModel.setAll(list);
-                JOptionPane.showMessageDialog(this, "Loaded!");
+                JOptionPane.showMessageDialog(
+                    this,
+                    "Loaded successfully.",
+                    "Load Complete",
+                    JOptionPane.INFORMATION_MESSAGE
+                );
             }
             catch (IOException ex)
             {
-                JOptionPane.showMessageDialog(this, "Load failed: " + ex.getMessage());
+                JOptionPane.showMessageDialog(
+                    this,
+                    "Load failed: " + ex.getMessage(),
+                    "Load Error",
+                    JOptionPane.ERROR_MESSAGE
+                );
             }
         });
 
@@ -128,7 +167,7 @@ public class EvergreenApp extends JFrame
         SwingUtilities.invokeLater(() -> new EvergreenApp().setVisible(true));
     }
 
-    private static class CropTableModel extends AbstractTableModel
+    private class CropTableModel extends AbstractTableModel
     {
         private final String[] cols = { "Name", "Season", "Amount", "Avg Days" };
 
@@ -199,7 +238,7 @@ public class EvergreenApp extends JFrame
                     return c.getCurrentAmount();
 
                 case 3:
-                    return c.getManualAvgCropPeriodDays();
+                    return c.getManualAvgCropPeriodDays() == null ? "" : c.getManualAvgCropPeriodDays();
 
                 default:
                     return null;
@@ -217,29 +256,125 @@ public class EvergreenApp extends JFrame
         {
             Crop c = data.get(row);
 
-            switch (col)
+            try
             {
-                case 0:
-                    c.setName((String) value);
-                    break;
+                switch (col)
+                {
+                    case 0:
+                    {
+                        String newName = value == null ? "" : value.toString().trim();
 
-                case 1:
-                    c.setSeason((Season) value);
-                    break;
+                        if (newName.isEmpty())
+                        {
+                            throw new IllegalArgumentException("Name cannot be blank.");
+                        }
 
-                case 2:
-                    c.setCurrentAmount((Integer) value);
-                    break;
+                        c.setName(newName);
+                        break;
+                    }
 
-                case 3:
-                    c.setManualAvgCropPeriodDays((Integer) value);
-                    break;
+                    case 1:
+                    {
+                        if (!(value instanceof Season))
+                        {
+                            throw new IllegalArgumentException("Invalid season.");
+                        }
 
-                default:
-                    break;
+                        c.setSeason((Season) value);
+                        break;
+                    }
+
+                    case 2:
+                    {
+                        int newAmount = parseRequiredNonNegativeInt(value, "Amount");
+                        c.setCurrentAmount(newAmount);
+                        break;
+                    }
+
+                    case 3:
+                    {
+                        Integer newAvgDays = parseOptionalNonNegativeInt(value, "Avg Days");
+                        c.setManualAvgCropPeriodDays(newAvgDays);
+                        break;
+                    }
+
+                    default:
+                        return;
+                }
+
+                fireTableCellUpdated(row, col);
+            }
+            catch (IllegalArgumentException ex)
+            {
+                JOptionPane.showMessageDialog(
+                    EvergreenApp.this,
+                    ex.getMessage(),
+                    "Invalid Input",
+                    JOptionPane.WARNING_MESSAGE
+                );
+            }
+        }
+
+        private int parseRequiredNonNegativeInt(Object value, String fieldName)
+        {
+            if (value == null)
+            {
+                throw new IllegalArgumentException(fieldName + " is required.");
             }
 
-            fireTableCellUpdated(row, col);
+            String text = value.toString().trim();
+
+            if (text.isEmpty())
+            {
+                throw new IllegalArgumentException(fieldName + " is required.");
+            }
+
+            try
+            {
+                int parsed = Integer.parseInt(text);
+
+                if (parsed < 0)
+                {
+                    throw new IllegalArgumentException(fieldName + " must be 0 or greater.");
+                }
+
+                return parsed;
+            }
+            catch (NumberFormatException ex)
+            {
+                throw new IllegalArgumentException(fieldName + " must be a whole number.");
+            }
+        }
+
+        private Integer parseOptionalNonNegativeInt(Object value, String fieldName)
+        {
+            if (value == null)
+            {
+                return null;
+            }
+
+            String text = value.toString().trim();
+
+            if (text.isEmpty())
+            {
+                return null;
+            }
+
+            try
+            {
+                int parsed = Integer.parseInt(text);
+
+                if (parsed < 0)
+                {
+                    throw new IllegalArgumentException(fieldName + " must be 0 or greater.");
+                }
+
+                return parsed;
+            }
+            catch (NumberFormatException ex)
+            {
+                throw new IllegalArgumentException(fieldName + " must be a whole number.");
+            }
         }
     }
 }
