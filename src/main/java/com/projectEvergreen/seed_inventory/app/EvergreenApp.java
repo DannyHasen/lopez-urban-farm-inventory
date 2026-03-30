@@ -6,7 +6,9 @@ import com.projectEvergreen.seed_inventory.model.Crop.Season;
 
 import javax.swing.*;
 import javax.swing.table.AbstractTableModel;
+import javax.swing.DefaultCellEditor;
 import java.awt.BorderLayout;
+import java.awt.Component;
 import java.awt.GridLayout;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -19,11 +21,23 @@ public class EvergreenApp extends JFrame
 
     public EvergreenApp()
     {
-        super("Evergreen – Seed Inventory");
+        super("Evergreen - Seed Inventory");
         setDefaultCloseOperation(EXIT_ON_CLOSE);
         setLayout(new BorderLayout());
 
         JTable table = new JTable(tableModel);
+        table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        table.setRowSelectionAllowed(true);
+        table.setColumnSelectionAllowed(false);
+        table.setCellSelectionEnabled(false);
+
+        table.getColumnModel().getColumn(2).setCellEditor(
+            new ValidatingIntegerCellEditor("Amount", false)
+        );
+        table.getColumnModel().getColumn(3).setCellEditor(
+            new ValidatingIntegerCellEditor("Avg Days", true)
+        );
+
         add(new JScrollPane(table), BorderLayout.CENTER);
 
         JPanel form = new JPanel(new GridLayout(2, 5, 8, 8));
@@ -80,21 +94,43 @@ public class EvergreenApp extends JFrame
             int avg = (Integer) avgDays.getValue();
             Integer avgOrNull = (avg == 0 ? null : avg);
 
-            tableModel.add(new Crop(
-                n,
-                (Season) season.getSelectedItem(),
-                amt,
-                avgOrNull
-            ));
+            try
+            {
+                tableModel.add(new Crop(
+                    n,
+                    (Season) season.getSelectedItem(),
+                    amt,
+                    avgOrNull
+                ));
 
-            name.setText("");
-            season.setSelectedIndex(0);
-            amount.setValue(0);
-            avgDays.setValue(0);
+                name.setText("");
+                season.setSelectedIndex(0);
+                amount.setValue(0);
+                avgDays.setValue(0);
+                table.clearSelection();
+            }
+            catch (IllegalArgumentException ex)
+            {
+                JOptionPane.showMessageDialog(
+                    this,
+                    ex.getMessage(),
+                    "Invalid Input",
+                    JOptionPane.WARNING_MESSAGE
+                );
+            }
         });
 
         del.addActionListener(e ->
         {
+            if (table.isEditing())
+            {
+                TableCellEditor editor = table.getCellEditor();
+                if (editor != null)
+                {
+                    editor.stopCellEditing();
+                }
+            }
+
             int row = table.getSelectedRow();
 
             if (row < 0)
@@ -109,10 +145,20 @@ public class EvergreenApp extends JFrame
             }
 
             tableModel.remove(row);
+            table.clearSelection();
         });
 
         save.addActionListener(e ->
         {
+            if (table.isEditing())
+            {
+                TableCellEditor editor = table.getCellEditor();
+                if (editor != null && !editor.stopCellEditing())
+                {
+                    return;
+                }
+            }
+
             try
             {
                 store.saveAll(tableModel.data);
@@ -132,14 +178,34 @@ public class EvergreenApp extends JFrame
                     JOptionPane.ERROR_MESSAGE
                 );
             }
+            catch (IllegalArgumentException ex)
+            {
+                JOptionPane.showMessageDialog(
+                    this,
+                    ex.getMessage(),
+                    "Invalid Data",
+                    JOptionPane.WARNING_MESSAGE
+                );
+            }
         });
 
         load.addActionListener(e ->
         {
+            if (table.isEditing())
+            {
+                TableCellEditor editor = table.getCellEditor();
+                if (editor != null)
+                {
+                    editor.stopCellEditing();
+                }
+            }
+
             try
             {
                 List<Crop> list = store.loadAll();
                 tableModel.setAll(list);
+                table.clearSelection();
+
                 JOptionPane.showMessageDialog(
                     this,
                     "Loaded successfully.",
@@ -156,6 +222,15 @@ public class EvergreenApp extends JFrame
                     JOptionPane.ERROR_MESSAGE
                 );
             }
+            catch (IllegalArgumentException ex)
+            {
+                JOptionPane.showMessageDialog(
+                    this,
+                    ex.getMessage(),
+                    "Invalid Data",
+                    JOptionPane.WARNING_MESSAGE
+                );
+            }
         });
 
         setSize(900, 400);
@@ -167,7 +242,94 @@ public class EvergreenApp extends JFrame
         SwingUtilities.invokeLater(() -> new EvergreenApp().setVisible(true));
     }
 
-    private class CropTableModel extends AbstractTableModel
+    private class ValidatingIntegerCellEditor extends DefaultCellEditor
+    {
+        private final boolean allowBlank;
+        private final String fieldName;
+
+        public ValidatingIntegerCellEditor(String fieldName, boolean allowBlank)
+        {
+            super(new JTextField());
+            this.fieldName = fieldName;
+            this.allowBlank = allowBlank;
+        }
+
+        @Override
+        public boolean stopCellEditing()
+        {
+            String text = ((JTextField) getComponent()).getText().trim();
+
+            if (allowBlank && text.isEmpty())
+            {
+                return super.stopCellEditing();
+            }
+
+            if (text.isEmpty())
+            {
+                JOptionPane.showMessageDialog(
+                    EvergreenApp.this,
+                    fieldName + " is required.",
+                    "Invalid Input",
+                    JOptionPane.WARNING_MESSAGE
+                );
+                return false;
+            }
+
+            try
+            {
+                int value = Integer.parseInt(text);
+
+                if (value < 0)
+                {
+                    JOptionPane.showMessageDialog(
+                        EvergreenApp.this,
+                        fieldName + " must be 0 or greater.",
+                        "Invalid Input",
+                        JOptionPane.WARNING_MESSAGE
+                    );
+                    return false;
+                }
+            }
+            catch (NumberFormatException ex)
+            {
+                JOptionPane.showMessageDialog(
+                    EvergreenApp.this,
+                    fieldName + " must be a whole number.",
+                    "Invalid Input",
+                    JOptionPane.WARNING_MESSAGE
+                );
+                return false;
+            }
+
+            return super.stopCellEditing();
+        }
+
+        @Override
+        public Object getCellEditorValue()
+        {
+            String text = ((JTextField) getComponent()).getText().trim();
+
+            if (allowBlank && text.isEmpty())
+            {
+                return null;
+            }
+
+            return Integer.parseInt(text);
+        }
+
+        @Override
+        public Component getTableCellEditorComponent(
+            JTable table, Object value, boolean isSelected, int row, int column)
+        {
+            JTextField field = (JTextField) super.getTableCellEditorComponent(
+                table, value, isSelected, row, column);
+
+            field.setText(value == null ? "" : value.toString());
+            return field;
+        }
+    }
+
+    private static class CropTableModel extends AbstractTableModel
     {
         private final String[] cols = { "Name", "Season", "Amount", "Avg Days" };
 
@@ -230,16 +392,12 @@ public class EvergreenApp extends JFrame
             {
                 case 0:
                     return c.getName();
-
                 case 1:
                     return c.getSeason();
-
                 case 2:
                     return c.getCurrentAmount();
-
                 case 3:
-                    return c.getManualAvgCropPeriodDays() == null ? "" : c.getManualAvgCropPeriodDays();
-
+                    return c.getManualAvgCropPeriodDays();
                 default:
                     return null;
             }
@@ -263,16 +421,9 @@ public class EvergreenApp extends JFrame
                     case 0:
                     {
                         String newName = value == null ? "" : value.toString().trim();
-
-                        if (newName.isEmpty())
-                        {
-                            throw new IllegalArgumentException("Name cannot be blank.");
-                        }
-
                         c.setName(newName);
                         break;
                     }
-
                     case 1:
                     {
                         if (!(value instanceof Season))
@@ -283,21 +434,18 @@ public class EvergreenApp extends JFrame
                         c.setSeason((Season) value);
                         break;
                     }
-
                     case 2:
                     {
                         int newAmount = parseRequiredNonNegativeInt(value, "Amount");
                         c.setCurrentAmount(newAmount);
                         break;
                     }
-
                     case 3:
                     {
                         Integer newAvgDays = parseOptionalNonNegativeInt(value, "Avg Days");
                         c.setManualAvgCropPeriodDays(newAvgDays);
                         break;
                     }
-
                     default:
                         return;
                 }
@@ -307,7 +455,7 @@ public class EvergreenApp extends JFrame
             catch (IllegalArgumentException ex)
             {
                 JOptionPane.showMessageDialog(
-                    EvergreenApp.this,
+                    null,
                     ex.getMessage(),
                     "Invalid Input",
                     JOptionPane.WARNING_MESSAGE
