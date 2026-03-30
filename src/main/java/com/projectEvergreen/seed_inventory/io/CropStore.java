@@ -81,7 +81,6 @@ public class CropStore
                 throw new IllegalArgumentException("Crop at index " + i + " is null.");
             }
 
-            // Re-apply validation through setters/constructor-style rules
             crop.setName(crop.getName());
             crop.setSeason(crop.getSeason());
             crop.setCurrentAmount(crop.getCurrentAmount());
